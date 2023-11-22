@@ -1,63 +1,145 @@
 <!DOCTYPE html>
 <html>
-<head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
-    <title>간단한 지도 표시하기</title>
-    <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=YOUR_CLIENT_ID"></script>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
-    <script src="../js/MarkerClustering.js"></script>
-</head>
-<body>
-<div id="map" style="width:100%;height:400px;"></div>
-<div>
-    <select id="markerFilter">
-        <option value="">default</option>
-        <option value="custom">custom</option>
-    </select>
-</div>
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
+        <title>간단한 지도 표시하기</title>
+        <script type="text/javascript" src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=YOUR_CLIENT_ID"></script>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+        <script src="../js/MarkerClustering.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+        <link rel="stylesheet" href="/css/main.css">
+    </head>
+    <body>
+        <div id="map" style="width:100%;height:400px;"></div>
+        <div id="radioDiv"></div>
+        <div>
+            <select id="markerFilter">
+                <option value="">default</option>
+                <option value="custom">custom</option>
+            </select>
+            <label for="markerFilter">커스텀 마커 변경</label>
+        </div>
+        <div>
+            <table id="locTable">
+                <th>No</th>
+                <th>위도, 경도</th>
+                <th>지역</th>
+                <th>자치구</th>
+            </table>
+        </div>
 <script>
     $(document).ready(function() {
-        readJson('N');
+        readJson();
 
         /*Maker 필터*/
         $('#markerFilter').change(function () {
-            if ($(this).val() === 'custom') {
-                readJson('Y');
-            } else {
-                readJson('N');
-            }
+            clearMarkers();
+            createMaker(jsonData);
         });
     });
 
+    /*네이버 맵 호출*/
+    let map
+    let markers = [];
+    let infoWindows = [];
+    let markerClustering;
+    let jsonData = [];
+    const HOME_PATH = '';
+
     /*Json 파일 read*/
-    const readJson = (customMarkerYn) => {
-        fetch('cctv.json')
+    const readJson = () => {
+        fetch('location.json')
             .then(response => {
                 if (!response.ok) {
                     throw new Error('No file')
                 }
                 return response.json();
             })
-            .then(data => naverMaps(data, customMarkerYn))
+            .then(data => {
+                jsonData = data;
+                naverMaps(data)
+            })
             .catch(error => console.error('Error fetching the JSON file:', error));
     }
 
-    /*네이버 맵 호출*/
-    const naverMaps = (data, customMarkerYn) => {
-        const HOME_PATH = '.';
+    /*좌표 클릭 이벤트*/
+    $('#locTable').on('click', '.marker-link', function(event) {
+        const lat = $(this).data('lat');
+        const lng = $(this).data('lng');
+        map.setCenter(new naver.maps.LatLng(lat, lng));
+        map.setZoom(18);
+    });
 
+    const naverMaps = (data) => {
+        try {
+            writeTable(data);
+            radioRender(data);
+            initMap(data);
+            createMaker(data);
+        } catch (error) {
+            console.error('Error initializing the map:', error);
+        }
+    }
+
+    /*좌표테이블 렌더링*/
+    const writeTable = (data) => {
+        let html = '';
+        for (let i = 0; i < data.length; i++) {
+            html += '<tr>';
+            html += '<td>'+ (i + 1) +'</td>';
+            html += `<td><a href="#" class="marker-link" data-lat="${data[i].위도}" data-lng="${data[i].경도}">${data[i].위도},&nbsp;${data[i].경도}</a></td>`;
+            html += '<td>' + data[i].지역 + '</td>';
+            html += '<td>' + data[i].자치구 + '</td>';
+            html += '</tr>';
+        }
+        $('#locTable').append(html);
+    }
+
+    /*자치구 라디오버튼 렌더링*/
+    const radioRender = (data) => {
+        let html = '<input type="radio" name="locRadio" value="all" onclick="clickRadio()">All';
+        const uniqueData = Array.from(new Set(data.map(item => item.자치구)))
+            .map(자치구 => data.find(item => item.자치구 === 자치구));
+        for (let i = 0; i < uniqueData.length; i++) {
+            html += '<input type="radio" name="locRadio" onclick="clickRadio()" value="' + uniqueData[i].자치구 + '">' + uniqueData[i].자치구;
+        }
+        $('#radioDiv').append(html);
+    }
+
+    /*자치구 라디오 클릭 이벤트*/
+    const clickRadio = () => {
+        clearMarkers();
+        const selectVal = $('input[name="locRadio"]:checked').val();
+        let filterData = jsonData.filter(data => {
+            if (selectVal !== 'all') {
+                return data.자치구 === selectVal;
+            }
+            return true;
+        }).map(data => data);
+        createMaker(filterData);
+    };
+
+    /*맵 초기화*/
+    const initMap = (data) => {
         var mapOptions = {
             center: new naver.maps.LatLng(data[0].위도, data[0].경도),
-            zoom: 18
+            zoomControl: true,
+            zoomControlOptions: {
+                position: naver.maps.Position.TOP_RIGHT
+            },
+            zoom: 12
         };
-        var map = new naver.maps.Map('map', mapOptions);
-        var markers = [];
-        var infoWindows = [];
+        map = new naver.maps.Map('map', mapOptions);
+    }
 
-        for (let i = 0; i < 500; i++) {
-            if (customMarkerYn === 'Y') {
+    /*마커 생성*/
+    const createMaker = (data) => {
+        for (let i = 0; i < data.length; i++) {
+            let customMarkerYn = $('#markerFilter').val();
+
+            if (customMarkerYn === 'custom') {
                 /*커스텀 마커 사용 Y*/
                 var marker = new naver.maps.Marker({
                     position: new naver.maps.LatLng(data[i].위도, data[i].경도),
@@ -77,8 +159,12 @@
                     map: map,
                 })
             }
+
             /*클릭이벤트 정보 작성*/
-            let html = '<div>자치구 : '+ data[i].자치구 + '<br>설치목적 : ' + data[i].설치목적 + '</div>';
+            let html = '<div>자치구: '+ data[i].자치구;
+            html += '<br>위도: ' + data[i].위도;
+            html += '<br>경도: ' + data[i].경도;
+
             var infowindow = new naver.maps.InfoWindow({
                 content: html
             });
@@ -87,20 +173,18 @@
             infoWindows.push(infowindow);
         }
 
-        /*클릭이벤트 등록*/
-        for (let i = 0; i < markers.length; i++) {
-            let infowindow = infoWindows[i];
-            let marker = markers[i];
-            naver.maps.Event.addListener(marker, "click", function(e) {
-                if (infowindow.getMap()) {
-                    infowindow.close();
-                } else {
-                    infowindow.open(map, marker);
-                }
-            });
-        }
+        /*보이는 부분만 마커 표시 이벤트*/
+        naver.maps.Event.addListener(map, 'idle', function() {
+            updateMarkers(map, markers);
+        });
 
-        /*마커 클러스터*/
+        calMakerCenter();
+        addMarkerEventListener();
+        createMarkerCluster();
+    }
+
+    /*마커 클러스터 생성*/
+    const createMarkerCluster = () => {
         var htmlMarker1 = {
                 content: '<div style="cursor:pointer;width:40px;height:40px;line-height:42px;font-size:10px;color:white;text-align:center;font-weight:bold;background:url('+ HOME_PATH +'/img/cluster-marker-1.png);background-size:contain;"></div>',
                 size: N.Size(40, 40),
@@ -127,8 +211,8 @@
                 anchor: N.Point(20, 20)
             };
 
-        var markerClustering = new MarkerClustering({
-            minClusterSize: 2,
+        markerClustering = new MarkerClustering({
+            minClusterSize: 1,
             maxZoom: 18,
             map: map,
             markers: markers,
@@ -140,6 +224,69 @@
                 $(clusterMarker.getElement()).find('div:first-child').text(count);
             }
         });
+    }
+
+    /*마커 중심 계산*/
+    const calMakerCenter = () => {
+        var bounds = new naver.maps.LatLngBounds();
+        markers.forEach(function(marker) {
+            bounds.extend(marker.getPosition());
+        });
+
+        const boundOption = { top: 10, right: 10, bottom: 10, left: 10, maxZoom: 18 };
+        map.fitBounds(bounds, boundOption);
+    }
+
+    /*마커 클릭이벤트 등록*/
+    const addMarkerEventListener = () => {
+        for (let i = 0; i < markers.length; i++) {
+            let infoWindow = infoWindows[i];
+            let marker = markers[i];
+            naver.maps.Event.addListener(marker, "click", function(e) {
+                if (infoWindow.getMap()) {
+                    infoWindow.close();
+                } else {
+                    infoWindow.open(map, marker);
+                }
+            });
+        }
+    }
+
+    /*마커 제거*/
+    const clearMarkers = () => {
+        markers.forEach(marker => {
+            marker.setMap(null);
+        });
+        markerClustering._clearClusters();
+        markers.splice(0);
+    }
+
+    /*마커 보이는 곳만 표시*/
+    function updateMarkers(map, markers) {
+        var mapBounds = map.getBounds();
+        var marker, position;
+
+        for (var i = 0; i < markers.length; i++) {
+
+            marker = markers[i]
+            position = marker.getPosition();
+
+            if (mapBounds.hasLatLng(position)) {
+                showMarker(map ,marker);
+            } else {
+                hideMarker(map, marker);
+            }
+        }
+    }
+
+    function showMarker(map, marker) {
+        if (marker.getMap()) return;
+        marker.setMap(map);
+    }
+
+    function hideMarker(map, marker) {
+        if (!marker.getMap()) return;
+        marker.setMap(null);
     }
 </script>
 </body>

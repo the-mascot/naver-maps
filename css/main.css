@@ -1,0 +1,17 @@
+table {
+    border: 1px solid black;
+    border-collapse: collapse;
+}
+
+th, td {
+    border: 1px solid black;
+    min-width: 50px;
+}
+
+#markerFilter {
+    margin-top: 10px;
+}
+
+#locTable {
+    margin-top: 10px;
+}
